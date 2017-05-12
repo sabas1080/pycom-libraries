@@ -103,10 +103,8 @@ class NanoGateway:
 
         # Create the alarms
         #self.stat_alarm = Timer.Alarm(handler=lambda t: self._push_data(self._make_stat_packet()), s=60, periodic=True)
-        #self._push_data(self._make_stat_packet())
 
         #self.pull_alarm = Timer.Alarm(handler=lambda u: self._pull_data(), s=25, periodic=True)
-        #self._pull_data()
 
         # Start the UDP receive thread
         #_thread.start_new_thread(self._udp_thread, ())
@@ -121,7 +119,7 @@ class NanoGateway:
 
         #self.lora.callback(trigger=(LoRa.RX_PACKET_EVENT | LoRa.TX_PACKET_EVENT), handler=self._lora_cb)
         #Dato de Nodo recibido
-        #self._lora_cb(10)
+        self._lora_cb(10)
 
     def stop(self):
         # TODO: Check how to stop the NTP sync
@@ -205,10 +203,10 @@ class NanoGateway:
             self.rxnb += 1
             self.rxok += 1
             rx_data = "hola" #self.lora_sock.recv(256)
-            #(timestamp, rssi, snr, sf)
+            # stats=(timestamp, rssi, snr, sf)
             #stats = lora.stats()
             #marca de tiempo del paquete
-            stats.timestamp = 1494606265
+            stats.timestamp = int(time.time())
             self._push_data(self._make_node_packet(rx_data, datetime.datetime.now(), stats.timestamp, stats.sf, stats.rssi, stats.snr))
             self.rxfw += 1
             print("LoRa.RX_PACKET_EVENT")
@@ -245,9 +243,9 @@ class NanoGateway:
                     if t_us < 0:
                         t_us += 0xFFFFFFFF
                     if t_us < 20000000:
-                        #self.uplink_alarm = Timer.Alarm(handler=lambda x: self._send_down_link(binascii.a2b_base64(tx_pk["txpk"]["data"]),
-                        #                                                                       tx_pk["txpk"]["tmst"] - 10, tx_pk["txpk"]["datr"],
-                        #                                                                       int(tx_pk["txpk"]["freq"] * 1000000)), us=t_us)
+                        self.uplink_alarm = Timer.Alarm(handler=lambda x: self._send_down_link(binascii.a2b_base64(tx_pk["txpk"]["data"]),
+                                                                                               tx_pk["txpk"]["tmst"] - 10, tx_pk["txpk"]["datr"],
+                                                                                               int(tx_pk["txpk"]["freq"] * 1000000)), us=t_us)
                         print("Downlink")
                     else:
                         ack_error = TX_ERR_TOO_LATE
