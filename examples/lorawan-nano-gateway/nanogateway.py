@@ -1,25 +1,28 @@
 """ LoPy Nano Gateway class """
 
-from network import WLAN
-from network import LoRa
-from machine import Timer
+#from network import WLAN
+#from network import LoRa
+#from machine import Timer
 import os
 import binascii
-import machine
+#import machine
 import json
 import time
 import errno
 import _thread
 import socket
+import time
+import datetime
+from threading import Timer
 
 
-PROTOCOL_VERSION = const(2)
+PROTOCOL_VERSION = 2
 
-PUSH_DATA = const(0)
-PUSH_ACK = const(1)
-PULL_DATA = const(2)
-PULL_ACK = const(4)
-PULL_RESP = const(3)
+PUSH_DATA = 0
+PUSH_ACK = 1
+PULL_DATA = 2
+PULL_ACK = 4
+PULL_RESP = 3
 
 TX_ERR_NONE = "NONE"
 TX_ERR_TOO_LATE = "TOO_LATE"
@@ -46,6 +49,12 @@ RX_PK = {"rxpk": [{"time": "", "tmst": 0,
 
 TX_ACK_PK = {"txpk_ack":{"error":""}}
 
+#(timestamp, rssi, snr, sf)
+class stats:
+   timestamp = 0
+   rssi = 0
+   snr = 0
+   sf = 8
 
 class NanoGateway:
 
@@ -77,38 +86,40 @@ class NanoGateway:
 
     def start(self):
         # Change WiFi to STA mode and connect
-        self.wlan = WLAN(mode=WLAN.STA)
-        self._connect_to_wifi()
+        #self.wlan = WLAN(mode=WLAN.STA)
+        #self._connect_to_wifi()
 
         # Get a time Sync
-        self.rtc = machine.RTC()
-        self.rtc.ntp_sync(self.ntp, update_period=self.ntp_period)
+        self.rtc = datetime.datetime.now()
+        #self.rtc.ntp_sync(self.ntp, update_period=self.ntp_period)
 
         # Get the server IP and create an UDP socket
         self.server_ip = socket.getaddrinfo(self.server, self.port)[0][-1]
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.setblocking(False)
-
+        print("IP OK")
         # Push the first time immediatelly
         self._push_data(self._make_stat_packet())
 
         # Create the alarms
-        self.stat_alarm = Timer.Alarm(handler=lambda t: self._push_data(self._make_stat_packet()), s=60, periodic=True)
-        self.pull_alarm = Timer.Alarm(handler=lambda u: self._pull_data(), s=25, periodic=True)
-
+        #self.stat_alarm = Timer.Alarm(handler=lambda t: self._push_data(self._make_stat_packet()), s=60, periodic=True)
+        self._push_data(self._make_stat_packet())
+        #self.pull_alarm = Timer.Alarm(handler=lambda u: self._pull_data(), s=25, periodic=True)
+        self._pull_data()
         # Start the UDP receive thread
         _thread.start_new_thread(self._udp_thread, ())
 
         # Initialize LoRa in LORA mode
-        self.lora = LoRa(mode=LoRa.LORA, frequency=self.frequency, bandwidth=LoRa.BW_125KHZ, sf=self.sf,
-                         preamble=8, coding_rate=LoRa.CODING_4_5, tx_iq=True)
+        #self.lora = LoRa(mode=LoRa.LORA, frequency=self.frequency, bandwidth=LoRa.BW_125KHZ, sf=self.sf,
+        #                 preamble=8, coding_rate=LoRa.CODING_4_5, tx_iq=True)
         # Create a raw LoRa socket
-        self.lora_sock = socket.socket(socket.AF_LORA, socket.SOCK_RAW)
-        self.lora_sock.setblocking(False)
-        self.lora_tx_done = False
+        #self.lora_sock = socket.socket(socket.AF_LORA, socket.SOCK_RAW)
+        #self.lora_sock.setblocking(False)
+        #self.lora_tx_done = False
 
-        self.lora.callback(trigger=(LoRa.RX_PACKET_EVENT | LoRa.TX_PACKET_EVENT), handler=self._lora_cb)
+        #self.lora.callback(trigger=(LoRa.RX_PACKET_EVENT | LoRa.TX_PACKET_EVENT), handler=self._lora_cb)
+        self._lora_cb(10)
 
     def stop(self):
         # TODO: Check how to stop the NTP sync
@@ -116,11 +127,11 @@ class NanoGateway:
         # TODO: kill the UDP thread
         self.sock.close()
 
-    def _connect_to_wifi(self):
-        self.wlan.connect(self.ssid, auth=(None, self.password))
-        while not self.wlan.isconnected():
-            time.sleep(0.5)
-        print("WiFi connected!")
+    #def _connect_to_wifi(self):
+    #    self.wlan.connect(self.ssid, auth=(None, self.password))
+    #    while not self.wlan.isconnected():
+    #        time.sleep(0.5)
+    #    print("WiFi connected!")
 
     def _dr_to_sf(self, dr):
         sf = dr[2:4]
@@ -132,17 +143,18 @@ class NanoGateway:
         return "SF7BW125"
 
     def _make_stat_packet(self):
-        now = self.rtc.now()
-        STAT_PK["stat"]["time"] = "%d-%02d-%02d %02d:%02d:%02d GMT" % (now[0], now[1], now[2], now[3], now[4], now[5])
+        now = datetime.datetime.now()
+        STAT_PK["stat"]["time"] = "%d-%02d-%02d %02d:%02d:%02d GMT" % (now.year, now.month, now.day, now.hour, now.minute, now.second)
         STAT_PK["stat"]["rxnb"] = self.rxnb
         STAT_PK["stat"]["rxok"] = self.rxok
         STAT_PK["stat"]["rxfw"] = self.rxfw
         STAT_PK["stat"]["dwnb"] = self.dwnb
         STAT_PK["stat"]["txnb"] = self.txnb
         return json.dumps(STAT_PK)
+        print("Make")
 
     def _make_node_packet(self, rx_data, rx_time, tmst, sf, rssi, snr):
-        RX_PK["rxpk"][0]["time"] = "%d-%02d-%02dT%02d:%02d:%02d.%dZ" % (rx_time[0], rx_time[1], rx_time[2], rx_time[3], rx_time[4], rx_time[5], rx_time[6])
+        RX_PK["rxpk"][0]["time"] = "%d-%02d-%02dT%02d:%02d:%02d.%dZ" % (rx_time.year, rx_time.month, rx_time.day, rx_time.hour, rx_time.minute, rx_time.second, rx_time.microsecond)
         RX_PK["rxpk"][0]["tmst"] = tmst
         RX_PK["rxpk"][0]["datr"] = self._sf_to_dr(sf)
         RX_PK["rxpk"][0]["rssi"] = rssi
@@ -157,6 +169,7 @@ class NanoGateway:
         with self.udp_lock:
             try:
                 self.sock.sendto(packet, self.server_ip)
+                print("Push Data")
             except Exception:
                 print("PUSH exception")
 
@@ -166,6 +179,7 @@ class NanoGateway:
         with self.udp_lock:
             try:
                 self.sock.sendto(packet, self.server_ip)
+                print("Pull data")
             except Exception:
                 print("PULL exception")
 
@@ -176,19 +190,21 @@ class NanoGateway:
         with self.udp_lock:
             try:
                 self.sock.sendto(packet, self.server_ip)
+                print("ack")
             except Exception:
                 print("PULL RSP ACK exception")
 
     def _lora_cb(self, lora):
-        events = lora.events()
-        if events & LoRa.RX_PACKET_EVENT:
+        events = 1#lora.events()
+        if events & 1: #LoRa.RX_PACKET_EVENT
             self.rxnb += 1
             self.rxok += 1
-            rx_data = self.lora_sock.recv(256)
-            stats = lora.stats()
-            self._push_data(self._make_node_packet(rx_data, self.rtc.now(), stats.timestamp, stats.sf, stats.rssi, stats.snr))
+            rx_data = "hola"#self.lora_sock.recv(256)
+            #(timestamp, rssi, snr, sf)
+            #stats = lora.stats()
+            self._push_data(self._make_node_packet(rx_data, datetime.datetime.now(), stats.timestamp, stats.sf, stats.rssi, stats.snr))
             self.rxfw += 1
-        if events & LoRa.TX_PACKET_EVENT:
+        if events & 0: #LoRa.TX_PACKET_EVENT
             self.txnb += 1
             lora.init(mode=LoRa.LORA, frequency=self.frequency, bandwidth=LoRa.BW_125KHZ,
                       sf=self.sf, preamble=8, coding_rate=LoRa.CODING_4_5, tx_iq=True)
