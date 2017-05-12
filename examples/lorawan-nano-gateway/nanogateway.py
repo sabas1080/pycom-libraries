@@ -15,14 +15,13 @@ import time
 import datetime
 from threading import Timer
 
+PROTOCOL_VERSION = '\x02'
 
-PROTOCOL_VERSION = 2
-
-PUSH_DATA = 0
-PUSH_ACK = 1
-PULL_DATA = 2
-PULL_ACK = 4
-PULL_RESP = 3
+PUSH_DATA = '\x00'
+PUSH_ACK  = '\x01'
+PULL_DATA = '\x02'
+PULL_ACK  = '\x04'
+PULL_RESP = '\x03'
 
 TX_ERR_NONE = "NONE"
 TX_ERR_TOO_LATE = "TOO_LATE"
@@ -41,7 +40,7 @@ STAT_PK = {"stat": {"time": "", "lati": 0,
 
 RX_PK = {"rxpk": [{"time": "", "tmst": 0,
                    "chan": 0, "rfch": 0,
-                   "freq": 868.1, "stat": 1,
+                   "freq": 9, "stat": 1,
                    "modu": "LORA", "datr": "SF7BW125",
                    "codr": "4/5", "rssi": 0,
                    "lsnr": 0, "size": 0,
@@ -90,7 +89,7 @@ class NanoGateway:
         #self._connect_to_wifi()
 
         # Get a time Sync
-        self.rtc = datetime.datetime.now()
+        #self.rtc = datetime.datetime.now()
         #self.rtc.ntp_sync(self.ntp, update_period=self.ntp_period)
 
         # Get the server IP and create an UDP socket
@@ -98,17 +97,19 @@ class NanoGateway:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.setblocking(False)
-        print("IP OK")
+
         # Push the first time immediatelly
         self._push_data(self._make_stat_packet())
 
         # Create the alarms
         #self.stat_alarm = Timer.Alarm(handler=lambda t: self._push_data(self._make_stat_packet()), s=60, periodic=True)
-        self._push_data(self._make_stat_packet())
+        #self._push_data(self._make_stat_packet())
+
         #self.pull_alarm = Timer.Alarm(handler=lambda u: self._pull_data(), s=25, periodic=True)
-        self._pull_data()
+        #self._pull_data()
+
         # Start the UDP receive thread
-        _thread.start_new_thread(self._udp_thread, ())
+        #_thread.start_new_thread(self._udp_thread, ())
 
         # Initialize LoRa in LORA mode
         #self.lora = LoRa(mode=LoRa.LORA, frequency=self.frequency, bandwidth=LoRa.BW_125KHZ, sf=self.sf,
@@ -119,7 +120,8 @@ class NanoGateway:
         #self.lora_tx_done = False
 
         #self.lora.callback(trigger=(LoRa.RX_PACKET_EVENT | LoRa.TX_PACKET_EVENT), handler=self._lora_cb)
-        self._lora_cb(10)
+        #Dato de Nodo recibido
+        #self._lora_cb(10)
 
     def stop(self):
         # TODO: Check how to stop the NTP sync
@@ -142,16 +144,17 @@ class NanoGateway:
     def _sf_to_dr(self, sf):
         return "SF7BW125"
 
-    def _make_stat_packet(self):
+    def _make_stat_packet(self): #Paquete de Status
         now = datetime.datetime.now()
         STAT_PK["stat"]["time"] = "%d-%02d-%02d %02d:%02d:%02d GMT" % (now.year, now.month, now.day, now.hour, now.minute, now.second)
         STAT_PK["stat"]["rxnb"] = self.rxnb
         STAT_PK["stat"]["rxok"] = self.rxok
         STAT_PK["stat"]["rxfw"] = self.rxfw
+        #ckr
         STAT_PK["stat"]["dwnb"] = self.dwnb
         STAT_PK["stat"]["txnb"] = self.txnb
+        print("Make Status Packet")
         return json.dumps(STAT_PK)
-        print("Make")
 
     def _make_node_packet(self, rx_data, rx_time, tmst, sf, rssi, snr):
         RX_PK["rxpk"][0]["time"] = "%d-%02d-%02dT%02d:%02d:%02d.%dZ" % (rx_time.year, rx_time.month, rx_time.day, rx_time.hour, rx_time.minute, rx_time.second, rx_time.microsecond)
@@ -163,9 +166,11 @@ class NanoGateway:
         RX_PK["rxpk"][0]["size"] = len(rx_data)
         return json.dumps(RX_PK)
 
+
     def _push_data(self, data):
         token = os.urandom(2)
-        packet = bytes([PROTOCOL_VERSION]) + token + bytes([PUSH_DATA]) + binascii.unhexlify(self.id) + data
+        packet = PROTOCOL_VERSION + token + PUSH_DATA + binascii.unhexlify(self.id) + (data)
+        print(packet)
         with self.udp_lock:
             try:
                 self.sock.sendto(packet, self.server_ip)
@@ -175,18 +180,18 @@ class NanoGateway:
 
     def _pull_data(self):
         token = os.urandom(2)
-        packet = bytes([PROTOCOL_VERSION]) + token + bytes([PULL_DATA]) + binascii.unhexlify(self.id)
+        packet = bytes(PROTOCOL_VERSION) + token + bytes(PULL_DATA) + binascii.unhexlify(self.id)
         with self.udp_lock:
             try:
                 self.sock.sendto(packet, self.server_ip)
-                print("Pull data")
+                print("Send Pull data")
             except Exception:
                 print("PULL exception")
 
     def _ack_pull_rsp(self, token, error):
         TX_ACK_PK["txpk_ack"]["error"] = error
         resp = json.dumps(TX_ACK_PK)
-        packet = bytes([PROTOCOL_VERSION]) + token + bytes([PULL_ACK]) + binascii.unhexlify(self.id) + resp
+        packet = bytes(PROTOCOL_VERSION) + token + bytes(PULL_ACK) + binascii.unhexlify(self.id) + resp
         with self.udp_lock:
             try:
                 self.sock.sendto(packet, self.server_ip)
@@ -199,15 +204,19 @@ class NanoGateway:
         if events & 1: #LoRa.RX_PACKET_EVENT
             self.rxnb += 1
             self.rxok += 1
-            rx_data = "hola"#self.lora_sock.recv(256)
+            rx_data = "hola" #self.lora_sock.recv(256)
             #(timestamp, rssi, snr, sf)
             #stats = lora.stats()
+            #marca de tiempo del paquete
+            stats.timestamp = 1494606265
             self._push_data(self._make_node_packet(rx_data, datetime.datetime.now(), stats.timestamp, stats.sf, stats.rssi, stats.snr))
             self.rxfw += 1
+            print("LoRa.RX_PACKET_EVENT")
         if events & 0: #LoRa.TX_PACKET_EVENT
             self.txnb += 1
             lora.init(mode=LoRa.LORA, frequency=self.frequency, bandwidth=LoRa.BW_125KHZ,
                       sf=self.sf, preamble=8, coding_rate=LoRa.CODING_4_5, tx_iq=True)
+            print("LoRa.TX_PACKET_EVENT")
 
     def _send_down_link(self, data, tmst, datarate, frequency):
         self.lora.init(mode=LoRa.LORA, frequency=frequency, bandwidth=LoRa.BW_125KHZ,
@@ -236,9 +245,10 @@ class NanoGateway:
                     if t_us < 0:
                         t_us += 0xFFFFFFFF
                     if t_us < 20000000:
-                        self.uplink_alarm = Timer.Alarm(handler=lambda x: self._send_down_link(binascii.a2b_base64(tx_pk["txpk"]["data"]),
-                                                                                               tx_pk["txpk"]["tmst"] - 10, tx_pk["txpk"]["datr"],
-                                                                                               int(tx_pk["txpk"]["freq"] * 1000000)), us=t_us)
+                        #self.uplink_alarm = Timer.Alarm(handler=lambda x: self._send_down_link(binascii.a2b_base64(tx_pk["txpk"]["data"]),
+                        #                                                                       tx_pk["txpk"]["tmst"] - 10, tx_pk["txpk"]["datr"],
+                        #                                                                       int(tx_pk["txpk"]["freq"] * 1000000)), us=t_us)
+                        print("Downlink")
                     else:
                         ack_error = TX_ERR_TOO_LATE
                         print("Downlink timestamp error!, t_us:", t_us)
