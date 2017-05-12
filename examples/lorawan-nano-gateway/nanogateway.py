@@ -119,7 +119,7 @@ class NanoGateway:
 
         #self.lora.callback(trigger=(LoRa.RX_PACKET_EVENT | LoRa.TX_PACKET_EVENT), handler=self._lora_cb)
         #Dato de Nodo recibido
-        self._lora_cb(10)
+        #self._lora_cb(10)
 
     def stop(self):
         # TODO: Check how to stop the NTP sync
@@ -148,7 +148,6 @@ class NanoGateway:
         STAT_PK["stat"]["rxnb"] = self.rxnb
         STAT_PK["stat"]["rxok"] = self.rxok
         STAT_PK["stat"]["rxfw"] = self.rxfw
-        #ckr
         STAT_PK["stat"]["dwnb"] = self.dwnb
         STAT_PK["stat"]["txnb"] = self.txnb
         print("Make Status Packet")
@@ -178,7 +177,7 @@ class NanoGateway:
 
     def _pull_data(self):
         token = os.urandom(2)
-        packet = bytes(PROTOCOL_VERSION) + token + bytes(PULL_DATA) + binascii.unhexlify(self.id)
+        packet = PROTOCOL_VERSION + token + PULL_DATA + binascii.unhexlify(self.id)
         with self.udp_lock:
             try:
                 self.sock.sendto(packet, self.server_ip)
@@ -189,7 +188,7 @@ class NanoGateway:
     def _ack_pull_rsp(self, token, error):
         TX_ACK_PK["txpk_ack"]["error"] = error
         resp = json.dumps(TX_ACK_PK)
-        packet = bytes(PROTOCOL_VERSION) + token + bytes(PULL_ACK) + binascii.unhexlify(self.id) + resp
+        packet = PROTOCOL_VERSION + token + PULL_ACK + binascii.unhexlify(self.id) + resp
         with self.udp_lock:
             try:
                 self.sock.sendto(packet, self.server_ip)
