@@ -1,11 +1,7 @@
 """ LoPy Nano Gateway class """
 
-#from network import WLAN
-#from network import LoRa
-#from machine import Timer
 import os
 import binascii
-#import machine
 import json
 import time
 import errno
@@ -91,15 +87,9 @@ class NanoGateway:
         self.lora_sock = None
 
     def start(self):
-        # Change WiFi to STA mode and connect
-        #self.wlan = WLAN(mode=WLAN.STA)
-        #self._connect_to_wifi()
+
         self._make_node_data()
-
-        # Get a time Sync
-        #self.rtc = datetime.datetime.now()
-        #self.rtc.ntp_sync(self.ntp, update_period=self.ntp_period)
-
+        
         # Get the server IP and create an UDP socket
         self.server_ip = socket.getaddrinfo(self.server, self.port)[0][-1]
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
