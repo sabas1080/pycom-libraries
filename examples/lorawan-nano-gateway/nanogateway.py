@@ -55,6 +55,13 @@ class stats:
    snr = 0
    sf = 8
 
+frameCount = 1
+
+DevAddr = [ 0x02, 0x02, 0x04, 0x20 ];	#Note: byte swapping done later
+
+AppSKey = [ 0x02, 0x02, 0x04, 0x20, 0x00, 0x00, 0x00, 0x00, 0x54, 0x68, 0x69, 0x6E, 0x67, 0x73, 0x34, 0x55 ];
+
+
 class NanoGateway:
 
     def __init__(self, id, frequency, datarate, ssid, password, server, port, ntp='pool.ntp.org', ntp_period=3600):
@@ -87,6 +94,7 @@ class NanoGateway:
         # Change WiFi to STA mode and connect
         #self.wlan = WLAN(mode=WLAN.STA)
         #self._connect_to_wifi()
+        self._make_node_data()
 
         # Get a time Sync
         #self.rtc = datetime.datetime.now()
@@ -119,7 +127,7 @@ class NanoGateway:
 
         #self.lora.callback(trigger=(LoRa.RX_PACKET_EVENT | LoRa.TX_PACKET_EVENT), handler=self._lora_cb)
         #Dato de Nodo recibido
-        #self._lora_cb(10)
+        self._lora_cb(10)
 
     def stop(self):
         # TODO: Check how to stop the NTP sync
@@ -163,6 +171,54 @@ class NanoGateway:
         RX_PK["rxpk"][0]["size"] = len(rx_data)
         return json.dumps(RX_PK)
 
+#Based in https://github.com/things4u/ESP-1ch-Gateway-v4.0/blob/master/ESP-sc-gway/_sensor.ino#L163
+    def _make_node_data(self):
+        global frameCount
+        message = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        mlength = 0
+        tmst = 0
+
+        # In the next few bytes the fake LoRa message must be put
+        # PHYPayload = MHDR | MACPAYLOAD | MIC
+        # MHDR, 1 byte (part of MACPayload)
+        message[0] = '\x40'								# 0x40 == unconfirmed up message
+
+        # MACPayload:  FHDR + FPort + FRMPayload
+        # FHDR consists of 4 bytes addr, 1byte Fctrl, 2bye FCnt, 0-15 byte FOpts
+        #	We support ABP addresses only for Gateways
+        message[1] = DevAddr[3]							# Last byte[3] of address
+        message[2] = DevAddr[2]
+        message[3] = DevAddr[1]
+        message[4] = DevAddr[0]							# First byte[0] of Dev_Addr
+        message[5] = 0x00							    # FCtrl is normally 0
+        message[6] = frameCount % 0x100					# LSB
+        message[7] = frameCount / 0x100					# MSB
+
+
+        # FPort, either 0 or 1 bytes. Must be != 0 for non MAC messages such as user payload
+        message[8] = 0x01									# Port must not be 0
+        mlength = 9
+
+        print(message)
+        # FRMPayload; Payload will be AES128 encoded using AppSKey
+        # See LoRa spec para 4.3.2
+        # You can add any byte string below based on you personal
+        # choice of sensors etc.
+
+        # Payload bytes in this example are encoded in the LoRaCode(c) format
+        PayLength = LoRaSensors((uint8_t *)(message+mlength));
+
+        # we have to include the AES functions at this stage in order to generate LoRa Payload.
+        encodePacket((uint8_t *)(message+mlength), PayLength, frameCount, 0);
+
+        mlength += PayLength								# length inclusive sensor data
+        mlength += 4										# LMIC Not Used but we have to add MIC bytes to PHYPayload
+
+        frameCount += 1
+
+        print("sensorPacket")
+        #buff_index = buildPacket(tmst, buff_up, message, mlength, true);
+        return(buff_index);
 
     def _push_data(self, data):
         token = os.urandom(2)
