@@ -135,12 +135,6 @@ class NanoGateway:
         # TODO: kill the UDP thread
         self.sock.close()
 
-    #def _connect_to_wifi(self):
-    #    self.wlan.connect(self.ssid, auth=(None, self.password))
-    #    while not self.wlan.isconnected():
-    #        time.sleep(0.5)
-    #    print("WiFi connected!")
-
     def _dr_to_sf(self, dr):
         sf = dr[2:4]
         if sf[1] not in '0123456789':
