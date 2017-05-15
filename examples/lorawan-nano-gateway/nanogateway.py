@@ -89,7 +89,7 @@ class NanoGateway:
     def start(self):
 
         self._make_node_data()
-        
+
         # Get the server IP and create an UDP socket
         self.server_ip = socket.getaddrinfo(self.server, self.port)[0][-1]
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -155,54 +155,7 @@ class NanoGateway:
         RX_PK["rxpk"][0]["size"] = len(rx_data)
         return json.dumps(RX_PK)
 
-#Based in https://github.com/things4u/ESP-1ch-Gateway-v4.0/blob/master/ESP-sc-gway/_sensor.ino#L163
-    def _make_node_data(self):
-        global frameCount
-        message = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        mlength = 0
-        tmst = 0
-
-        # In the next few bytes the fake LoRa message must be put
-        # PHYPayload = MHDR | MACPAYLOAD | MIC
-        # MHDR, 1 byte (part of MACPayload)
-        message[0] = '\x40'								# 0x40 == unconfirmed up message
-
-        # MACPayload:  FHDR + FPort + FRMPayload
-        # FHDR consists of 4 bytes addr, 1byte Fctrl, 2bye FCnt, 0-15 byte FOpts
-        #	We support ABP addresses only for Gateways
-        message[1] = DevAddr[3]							# Last byte[3] of address
-        message[2] = DevAddr[2]
-        message[3] = DevAddr[1]
-        message[4] = DevAddr[0]							# First byte[0] of Dev_Addr
-        message[5] = 0x00							    # FCtrl is normally 0
-        message[6] = frameCount % 0x100					# LSB
-        message[7] = frameCount / 0x100					# MSB
-
-
-        # FPort, either 0 or 1 bytes. Must be != 0 for non MAC messages such as user payload
-        message[8] = 0x01									# Port must not be 0
-        mlength = 9
-
-        print(message)
-        # FRMPayload; Payload will be AES128 encoded using AppSKey
-        # See LoRa spec para 4.3.2
-        # You can add any byte string below based on you personal
-        # choice of sensors etc.
-
-        # Payload bytes in this example are encoded in the LoRaCode(c) format
-        #PayLength = LoRaSensors((uint8_t *)(message+mlength));
-
-        # we have to include the AES functions at this stage in order to generate LoRa Payload.
-        #encodePacket((uint8_t *)(message+mlength), PayLength, frameCount, 0);
-
-        #mlength += PayLength								# length inclusive sensor data
-        mlength += 4										# LMIC Not Used but we have to add MIC bytes to PHYPayload
-
-        frameCount += 1
-
-        print("sensorPacket")
-        #buff_index = buildPacket(tmst, buff_up, message, mlength, true);
-        return(buff_index);
+    
 
     def _push_data(self, data):
         token = os.urandom(2)
@@ -214,55 +167,6 @@ class NanoGateway:
                 print("Push Data")
             except Exception:
                 print("PUSH exception")
-
-
-    def encodePacket(Data, DataLength, FrameCount, Direction):
-
-            #i, j
-    	    #Block_A[16]
-    	    #bLen=16;						# Block length is 16 except for last block in message
-    	    restLength = DataLength % 16	# We work in blocks of 16 bytes, this is the rest
-    	    numBlocks  = DataLength / 16	# Number of whole blocks to encrypt
-            if restLength > 0:
-                numBlocks += 1			# And add block for the rest if any
-            for i in numBlocks:
-                Block_A[0] = 0x01;
-                Block_A[1] = 0x00;
-                Block_A[2] = 0x00;
-                Block_A[3] = 0x00;
-                Block_A[4] = 0x00;
-
-                Block_A[5] = Direction;				# 0 is uplink
-
-                Block_A[6] = DevAddr[3];			# Only works for and with ABP
-                Block_A[7] = DevAddr[2];
-                Block_A[8] = DevAddr[1];
-                Block_A[9] = DevAddr[0];
-
-                Block_A[10] = (FrameCount & 0x00FF);
-                Block_A[11] = ((FrameCount >> 8) & 0x00FF);
-                Block_A[12] = 0x00; 				# Frame counter upper Bytes
-                Block_A[13] = 0x00;					# These are not used so are 0
-
-                Block_A[14] = 0x00;
-                Block_A[15] = i;
-
-                # Encrypt and calculate the S
-                AES_Encrypt(Block_A, AppSKey);
-
-                # Last block? set bLen to rest
-                if (i == numBlocks) and (restLength>0):
-                    bLen = restLength
-                for j in bLen:
-                    #*Data = *Data ^ Block_A[j]
-                    Data += 1
-
-
-    	        #return(numBlocks*16);			# Do we really want to return all 16 bytes in lastblock
-    	        return(DataLength);				# or only 16*(numBlocks-1)+bLen;
-
-
-
 
 
     def _pull_data(self):
