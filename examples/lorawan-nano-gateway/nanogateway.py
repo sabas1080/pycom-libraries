@@ -2,6 +2,9 @@
 
 import os
 import binascii
+from binascii import unhexlify
+import random
+import sys
 import json
 import time
 import errno
@@ -10,6 +13,10 @@ import socket
 import time
 import datetime
 from threading import Timer
+
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
 
 PROTOCOL_VERSION = '\x02'
 
@@ -51,12 +58,12 @@ class stats:
    snr = 0
    sf = 8
 
-frameCount = 1
+UP_LINK = 0
+DOWN_LINK = 1
 
-DevAddr = [ 0x02, 0x02, 0x04, 0x20 ];	#Note: byte swapping done later
-
-AppSKey = [ 0x02, 0x02, 0x04, 0x20, 0x00, 0x00, 0x00, 0x00, 0x54, 0x68, 0x69, 0x6E, 0x67, 0x73, 0x34, 0x55 ];
-
+AppSKey = '271E403DF4225EEF7E90836494A5B345'
+dev_addr = '000015E4'
+payload_hex= '686f6c61' #hola in hex
 
 class NanoGateway:
 
@@ -155,7 +162,90 @@ class NanoGateway:
         RX_PK["rxpk"][0]["size"] = len(rx_data)
         return json.dumps(RX_PK)
 
-    
+    def LoRaPayloadEncrypt(self, payload_hex, frameCount, AppSKey, dev_addr, direction=UP_LINK):
+        '''
+        LoraMac decrypt
+
+        Which is actually encrypting a predefined 16-byte block (ref LoraWAN
+        specification 4.3.3.1) and XORing that with each block of data.
+
+        payload_hex: hex-encoded payload (FRMPayload)
+        sequence_counter: integer, sequence counter (FCntUp)
+        key: 16-byte hex-encoded AES key. (i.e. AABBCCDDEEFFAABBCCDDEEFFAABBCCDD)
+        dev_addr: 4-byte hex-encoded DevAddr (i.e. AABBCCDD)
+        direction: 0 for uplink packets, 1 for downlink packets
+
+        returns an array of byte values.
+
+        This method is based on `void LoRaMacPayloadEncrypt()` in
+        https://github.com/Lora-net/LoRaMac-node/blob/master/src/mac/LoRaMacCrypto.c#L108
+        '''
+        AppSKey = unhexlify(AppSKey)
+        dev_addr = unhexlify(dev_addr)
+        buffer = bytearray(unhexlify(payload_hex))
+        size = len(buffer)
+
+        bufferIndex = 0
+        # block counter
+        ctr = 1
+
+        # output buffer, initialize to input buffer size.
+        encBuffer = [0x00] * size
+
+        cipher = Cipher(algorithms.AES(AppSKey), modes.ECB(), backend=default_backend())
+
+        def aes_encrypt_block(aBlock):
+            '''
+            AES encrypt a block.
+            aes.encrypt expects a string, so we convert the input to string and
+            the return value to bytes again.
+            '''
+            encryptor = cipher.encryptor()
+
+            return bytearray(
+                encryptor.update(self.to_bytes(aBlock)) + encryptor.finalize()
+            )
+
+        # For the exact definition of this block refer to
+        # 'chapter 4.3.3.1 Encryption in LoRaWAN' in the LoRaWAN specification
+        aBlock = bytearray([
+            0x01,                             # 0 always 0x01
+            0x00,                             # 1 always 0x00
+            0x00,                             # 2 always 0x00
+            0x00,                             # 3 always 0x00
+            0x00,                             # 4 always 0x00
+            direction,                        # 5 dir, 0 for uplink, 1 for downlink
+            dev_addr[3],                      # 6 devaddr, lsb
+            dev_addr[2],                      # 7 devaddr
+            dev_addr[1],                      # 8 devaddr
+            dev_addr[0],                      # 9 devaddr, msb
+            frameCount & 0xff,          # 10 sequence counter (FCntUp) lsb
+            (frameCount >> 8) & 0xff,   # 11 sequence counter
+            (frameCount >> 16) & 0xff,  # 12 sequence counter
+            (frameCount >> 24) & 0xff,  # 13 sequence counter (FCntUp) msb
+            0x00,                             # 14 always 0x01
+            0x00                              # 15 block counter
+        ])
+
+        # complete blocks
+        while size >= 16:
+            aBlock[15] = ctr & 0xFF
+            ctr += 1
+            sBlock = aes_encrypt_block(aBlock)
+            for i in range(16):
+                encBuffer[bufferIndex + i] = buffer[bufferIndex + i] ^ sBlock[i]
+
+            size -= 16
+            bufferIndex += 16
+
+        # partial blocks
+        if size > 0:
+            aBlock[15] = ctr & 0xFF
+            sBlock = aes_encrypt_block(aBlock)
+            for i in range(size):
+                encBuffer[bufferIndex + i] = buffer[bufferIndex + i] ^ sBlock[i]
+
+        return encBuffer
 
     def _push_data(self, data):
         token = os.urandom(2)
